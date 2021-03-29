@@ -332,7 +332,7 @@ Leasing activity can be aggregated as a simple sum. If necessary, rounding to wh
     END speer_business_plan_tenant_improvements_per_area,
   ROUND(
     CASE 
-	  WHEN COALESCE(SUM(lm.leasing_metrics_gross_lease_value_amount * er.exchange_rate),0) = 0 
+      WHEN COALESCE(SUM(lm.leasing_metrics_gross_lease_value_amount * er.exchange_rate),0) = 0 
       THEN 0
       ELSE SUM(CASE WHEN a.amendment_short_term_flag = 'Yes' THEN 0 ELSE 1 END * CAST((lm.leasing_metrics_free_rent_amount * er.exchange_rate) AS float)) / 
         CAST(SUM(lm.leasing_metrics_gross_lease_value_amount * er.exchange_rate) AS float)

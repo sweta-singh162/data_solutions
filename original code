@@ -1,0 +1,207 @@
+/*** 
+The leasing metrics building block stores leasing metrics in four different ways. 
+Please be aware to always filter this building block to one logic type, by lm.leasing_metrics_report_logic_type = 
+'Start Date Locked'/'Start Date Current'/'Activation Date Locked'/'Activation Date Current'.
+First select the desired level of detail for the result set. In this case, we will only get division and region. 
+Each additional level of detail requires adjusting the  GROUP BY clause as well. 
+***/
+select 
+  g.division_sort_order_number,
+  g.division_name,
+  g.region_name,
+/***
+Leasing activity can be aggregated as a simple sum. If necessary, rounding to whole numbers may be added 
+***/
+  sum(lm.leasing_metrics_transaction_count) transaction_count,
+  round(sum(lm.leasing_metrics_new_leasing_ttg_amount),0) new_leasing_activity,
+  round(sum(lm.leasing_metrics_renewal_leasing_ttg_amount),0) renewal_leasing_activity,
+  case
+    when coalesce(sum(lm.leasing_metrics_renewal_leasing_ttg_amount + lm.leasing_metrics_terminated_leasing_ttg_amount),0) = 0
+    then 0
+    else round((sum(lm.leasing_metrics_renewal_leasing_ttg_amount) /
+      sum(lm.leasing_metrics_renewal_leasing_ttg_amount + lm.leasing_metrics_terminated_leasing_ttg_amount) * 100) ,1)
+    end retention,
+  round(sum(lm.leasing_metrics_proposed_turnover_costs_ttg_amount * er.exchange_rate), 0) to_costs,
+  case
+    when coalesce(sum(lm.leasing_metrics_deal_term_nra_to_cost_ttg_amount), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_proposed_turnover_costs_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_deal_term_nra_to_cost_ttg_amount) as float), 2)
+    end to_costs_per_area,
+  case
+    when coalesce(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_prior_ner_per_year_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount) as float), 2)
+    end prior_ner,
+  case 
+    when coalesce(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount), 0) = 0
+    then 0 
+    else round(cast(sum(lm.leasing_metrics_ner_per_year_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount) as float), 2)
+    end ner,
+  case 
+    when coalesce(sum(lm.leasing_metrics_prior_ner_per_year_ttg_amount * er.exchange_rate), 0) = 0
+    then 0
+    else round((cast(sum(lm.leasing_metrics_ner_per_year_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_prior_ner_per_year_ttg_amount * er.exchange_rate) as float) - 1) * 100, 1) 
+    end as rent_change,
+  case
+    when coalesce(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_ending_cash_rent_per_year_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount) as float), 2)
+    end as ending_cash_rent,
+  case
+    when coalesce(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_starting_cash_rent_per_year_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_deal_term_nra_rent_change_ttg_amount) as float), 2)
+    end as starting_cash_rent,
+  case 
+    when coalesce(sum(lm.leasing_metrics_ending_cash_rent_per_year_ttg_amount * er.exchange_rate), 0) = 0
+    then 0
+    else round((cast(sum(lm.leasing_metrics_starting_cash_rent_per_year_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_ending_cash_rent_per_year_ttg_amount * er.exchange_rate) as float) - 1) * 100, 1)
+    end AS  cash_rent_change,
+  case 
+    when coalesce(sum(lm.leasing_metrics_new_leasing_ttg_amount + lm.leasing_metrics_renewal_leasing_ttg_amount), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_weighted_calculated_lease_term_ttg_months) as float) / 
+      cast(sum(lm.leasing_metrics_new_leasing_ttg_amount + lm.leasing_metrics_renewal_leasing_ttg_amount) as float), 1) 
+    end AS walt,
+  round(sum(lm.leasing_metrics_lease_value_amount * er.exchange_rate), 0) lease_value,
+  case 
+    when coalesce(sum(lm.leasing_metrics_lease_value_amount * lm.leasing_metrics_include_in_turnover_costs_ttg_indicator * er.exchange_rate), 0) = 0
+    then 0
+    else round((cast(sum(lm.leasing_metrics_proposed_turnover_costs_ttg_amount * er.exchange_rate) as float) / 
+      cast(sum(lm.leasing_metrics_lease_value_amount * lm.leasing_metrics_include_in_turnover_costs_ttg_indicator * er.exchange_rate) as float) * 100), 1) 
+    end AS to_costs_perc_lease_value,
+  round( 
+    sum (
+	  case 
+        when a.amendment_short_term_flag = 'Yes'
+        then 0
+        else 1 
+        end * (lm.leasing_metrics_free_rent_amount * er_free_rent.exchange_rate)), 0) free_rent,
+  case 
+    when coalesce(sum(lm.leasing_metrics_downtime_net_rentable_area_amount), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_downtime_days * lm.leasing_metrics_downtime_net_rentable_area_amount) as float) / 
+      cast(sum(lm.leasing_metrics_downtime_net_rentable_area_amount) as float), 0) 
+    end AS downtime_days,
+  sum(lm.leasing_metrics_include_in_speer_ttg_indicator) speer_transaction_count,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * 
+      (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_speer_deal_index_percentage * lm.leasing_metrics_include_in_speer_ttg_indicator * 
+	  (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) / 
+	  cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) * 100, 2)
+    end speer_deal_index,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * 
+      (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_speer_deal_free_rent_months * lm.leasing_metrics_include_in_speer_ttg_indicator * 
+	  (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) / 
+      cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 1)
+     end speer_free_rent_deal,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_speer_mla_free_rent_months * lm.leasing_metrics_include_in_speer_ttg_indicator * 
+      (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) / 
+      cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 1)
+    end speer_free_rent_mla,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_proposed_ti_amount * er.exchange_rate * 
+      lm.leasing_metrics_include_in_speer_ttg_indicator) as float) / 
+      cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 2)
+    end speer_ti_costs_per_area_deal,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_speer_mla_ti_per_area_amount * er.exchange_rate * 
+      lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) / 
+      cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 2)
+    end speer_ti_costs_per_area_mla,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_speer_duration_index_percentage * 
+      lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount +           
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) /      
+      cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount +                   
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 2)
+    end speer_duration_index,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+      else round(cast(sum(lm.leasing_metrics_speer_deal_lease_term_months * lm.leasing_metrics_include_in_speer_ttg_indicator * 
+	    (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) / 
+        cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+        lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 1)
+    end speer_deal_lease_term,
+  case 
+    when coalesce(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)), 0) = 0
+    then 0
+    else round(cast(sum(lm.leasing_metrics_speer_mla_lease_term_months * lm.leasing_metrics_include_in_speer_ttg_indicator * 
+	  (lm.leasing_metrics_new_leasing_non_ttg_amount + lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float) / 
+      cast(sum(lm.leasing_metrics_include_in_speer_ttg_indicator * (lm.leasing_metrics_new_leasing_non_ttg_amount + 
+      lm.leasing_metrics_renewal_leasing_non_ttg_amount)) as float), 1)
+    end speer_mla_lease_term
+from
+  db_prologis.leasing_metrics lm
+  inner join db_prologis.building b
+    on b.building_wid = lm.building_wid
+  inner join db_prologis.geography_rollup g
+    on g.geography_wid = lm.geography_wid
+  inner join db_prologis.supplemental_portfolio sp
+    on sp.supplemental_wid = lm.supplemental_wid
+  inner join db_prologis.ownership o
+    on o.ownership_wid = lm.ownership_wid
+  inner join db_prologis.lease l
+    on l.lease_wid = lm.lease_wid
+  inner join db_prologis.exchange_rate er
+    on er.exchange_rate_start_date <= lm.leasing_metrics_exchange_rate_date
+    and er.exchange_rate_end_date >= lm.leasing_metrics_exchange_rate_date
+    and er.exchange_rate_type = 'PCURR'
+    and er.exchange_rate_from_currency_code = lm.leasing_metrics_currency_code
+    and er.exchange_rate_to_currency_code = 'USD'
+  inner join db_prologis.exchange_rate er_free_rent
+    on er_free_rent.exchange_rate_start_date <= lm.leasing_metrics_exchange_rate_date
+    and er_free_rent.exchange_rate_end_date >= lm.leasing_metrics_exchange_rate_date
+    and er_free_rent.exchange_rate_type = 'PCURR'
+    and er_free_rent.exchange_rate_from_currency_code = lm.leasing_metrics_free_rent_currency_code
+    and er_free_rent.exchange_rate_to_currency_code = 'USD' 
+/***
+Join for short term flag for temporarily calculating free rent until free rent is fixed in gdw
+***/
+  inner join db_prologis.amendment a
+    on a.amendment_wid = lm.amendment_wid
+where
+  1=1
+  and lm.leasing_metrics_report_logic_type = 'Start Date Locked'
+  and lm.report_date_wid between 20190701 and 20190930
+group by
+  g.division_sort_order_number,
+  g.division_name,
+  g.region_name
+order by 
+  g.division_sort_order_number
+;
